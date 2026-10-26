@@ -16,7 +16,9 @@
 
     {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
 
-    <form class="panel" action="{{ url_for('recommend') }}" method="post" enctype="multipart/form-data">
+    <form class="panel" id="recipe-form" action="{{ url_for('recommend') }}" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="photo_context" value="{{ image_summary|default('') }}">
+      <input type="hidden" name="previous_recipe_names" value="{{ recipes|default([])|map(attribute='name')|join(' | ') }}">
       <fieldset class="mode-picker">
         <legend>How should I help you choose?</legend>
         <div class="mode-tabs">
@@ -137,6 +139,7 @@
     {% if recipes is defined %}
     <section class="results">
       <div class="results-heading"><div><span class="eyebrow">MADE FOR YOUR INPUT</span><h2>Recipe ideas</h2></div></div>
+      <button class="button secondary refresh-recipes" type="submit" form="recipe-form" name="refresh" value="1">↻ Get new recipes</button>
       {% if recipes %}
         {% for recipe in recipes %}
         <article class="panel recipe">
@@ -168,7 +171,18 @@
           </div>
           {% if recipe.substitution_note %}<p class="substitution"><strong>Substitution:</strong> {{ recipe.substitution_note }}</p>{% endif %}
           <p class="nutrition-note">{{ recipe.nutrition_note }}</p>
-          <button class="button secondary speak" type="button">🔊 Read this recipe</button>
+          <div class="speech-controls">
+            <label class="speech-language">Read in
+              <select class="speech-language-select" aria-label="Choose recipe read-aloud language">
+                {% for code, language in tts_languages.items() %}
+                <option value="{{ code }}" {% if code == 'en-IN' %}selected{% endif %}>{{ language.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button class="button secondary speak" type="button">🔊 Read this recipe</button>
+            <button class="button secondary pause-speech" type="button" disabled>⏸ Pause</button>
+            <button class="button secondary resume-speech" type="button" disabled>▶ Resume</button>
+          </div>
           <div class="speech-script hidden">{{ recipe.name }}. {{ recipe.description }}. Ingredients: {{ recipe.ingredients|join('. ') }}. Method: {{ recipe.steps|join('. ') }}. Total time: {{ recipe.total_minutes }} minutes.</div>
         </article>
         {% endfor %}
@@ -254,26 +268,63 @@
       } catch (_error) { voiceStatus.textContent = "Allow microphone access to dictate."; }
     });
 
-    document.querySelectorAll(".speak").forEach(button => {
+    document.querySelectorAll(".recipe").forEach(card => {
+      const button = card.querySelector(".speak");
+      const pauseButton = card.querySelector(".pause-speech");
+      const resumeButton = card.querySelector(".resume-speech");
+      let player = null;
+      let audioUrl = null;
+
+      pauseButton.addEventListener("click", () => {
+        if (player && !player.paused) player.pause();
+      });
+      resumeButton.addEventListener("click", async () => {
+        if (!player || !player.paused) return;
+        try { await player.play(); }
+        catch (_error) { voiceStatus.textContent = "Could not resume recipe audio."; }
+      });
       button.addEventListener("click", async () => {
-        const card = button.closest(".recipe");
+        if (player) {
+          player.onpause = null;
+          player.onended = null;
+          player.pause();
+        }
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        player = null;
+        audioUrl = null;
+        pauseButton.disabled = true;
+        resumeButton.disabled = true;
         const text = card.querySelector(".speech-script").textContent.trim();
         button.disabled = true;
         button.textContent = "Preparing audio…";
         const form = new FormData();
         form.append("text", text);
+        form.append("language_code", card.querySelector(".speech-language-select").value);
         try {
           const response = await fetch("{{ url_for('speak') }}", { method: "POST", body: form });
           if (!response.ok) {
             throw new Error(await readErrorResponse(response, "Speech generation failed"));
           }
-          const audioUrl = URL.createObjectURL(await response.blob());
-          const player = new Audio(audioUrl);
-          player.onended = () => URL.revokeObjectURL(audioUrl);
-          await player.play();
+          const currentUrl = URL.createObjectURL(await response.blob());
+          audioUrl = currentUrl;
+          const currentPlayer = new Audio(currentUrl);
+          player = currentPlayer;
+          currentPlayer.onplay = () => { pauseButton.disabled = false; resumeButton.disabled = true; };
+          currentPlayer.onpause = () => {
+            if (!currentPlayer.ended) { pauseButton.disabled = true; resumeButton.disabled = false; }
+          };
+          currentPlayer.onended = () => {
+            pauseButton.disabled = true;
+            resumeButton.disabled = true;
+            URL.revokeObjectURL(currentUrl);
+            if (audioUrl === currentUrl) audioUrl = null;
+          };
+          await currentPlayer.play();
           button.textContent = "🔊 Read this recipe";
         } catch (error) {
           button.textContent = error.message;
+          pauseButton.disabled = true;
+          resumeButton.disabled = true;
         } finally { button.disabled = false; }
       });
     });
