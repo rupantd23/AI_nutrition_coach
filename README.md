@@ -1,5 +1,5 @@
 # Rasoi Saathi
-render link:https://ai-nutrition-coach-okp3.onrender.com/
+## render link:https://ai-nutrition-coach-okp3.onrender.com/  
 **Hungry, but your fridge and your brain are both saying “nothing”?** Snap a dish, tell Rasoi Saathi what’s in your kitchen, or pick the taste you’re craving. It turns that little nudge—spicy, tangy, crunchy, comforting—into Indian recipe ideas you can actually cook, complete with ingredients, steps, time, and estimated nutrition.
 
 Think of it as a friend in the kitchen: one who can look at your food photo, help you decide what sounds good, and read the recipe while you cook.
