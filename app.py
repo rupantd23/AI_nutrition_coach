@@ -417,12 +417,29 @@ def transcribe():
     language_code = request.form.get("language_code", "en-IN")
     if language_code not in DICTATION_LANGUAGES:
         return jsonify(error="Choose a supported dictation language."), 400
+    mime_type = (audio.mimetype or "").split(";", 1)[0].strip().lower()
+    codec_by_mime = {
+        "audio/webm": "webm",
+        "audio/mp4": "mp4",
+        "audio/x-m4a": "x-m4a",
+        "audio/ogg": "ogg",
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "audio/wav": "wav",
+        "audio/x-wav": "x-wav",
+        "audio/aac": "aac",
+        "audio/flac": "flac",
+    }
+    input_audio_codec = codec_by_mime.get(mime_type)
+    if not input_audio_codec:
+        return jsonify(error=f"This browser recording format is not supported: {mime_type or 'unknown'}"), 415
     try:
         response = sarvam_client().speech_to_text.transcribe(
-            file=(audio.filename or "dictation.webm", io.BytesIO(audio_bytes), audio.mimetype or "audio/webm"),
+            file=(audio.filename, io.BytesIO(audio_bytes), mime_type),
             model="saaras:v4",
             mode="transcribe",
             language_code=language_code,
+            input_audio_codec=input_audio_codec,
         )
         transcript = getattr(response, "transcript", "")
         if not transcript and hasattr(response, "model_dump"):
@@ -442,14 +459,14 @@ def speak():
         return jsonify(error="There is no recipe text to read."), 400
     text = text[:2400]
     try:
-        chunks = sarvam_client().text_to_speech.convert(
+        speech = sarvam_client().text_to_speech.convert(
             text=text,
             model="bulbul:v4-flash",
             language_code="en-IN",
             speaker="aditi_en_stories",
             output_audio_codec="mp3",
         )
-        audio_bytes = b"".join(chunks)
+        audio_bytes = base64.b64decode("".join(speech.audios or []))
         if not audio_bytes:
             return jsonify(error="Sarvam did not return audio."), 502
         return send_file(io.BytesIO(audio_bytes), mimetype="audio/mpeg", download_name="recipe.mp3")
