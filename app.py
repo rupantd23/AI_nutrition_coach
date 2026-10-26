@@ -36,6 +36,17 @@ DICTATION_LANGUAGES = {
     "mai-IN": "Maithili",
     "doi-IN": "Dogri",
 }
+TTS_LANGUAGES = {
+    "en-IN": {"name": "English", "speaker": "aditi_en_stories"},
+    "hi-IN": {"name": "Hindi", "speaker": "roopa_hi_narration"},
+    "bn-IN": {"name": "Bengali", "speaker": "roopa_bn_conversational"},
+    "gu-IN": {"name": "Gujarati", "speaker": "pooja_gu_conversational"},
+    "kn-IN": {"name": "Kannada", "speaker": "chaitra_kn_narration"},
+    "mr-IN": {"name": "Marathi", "speaker": "mrunal_mr_narration"},
+    "pa-IN": {"name": "Punjabi", "speaker": "harpreet_pa_narration"},
+    "ta-IN": {"name": "Tamil", "speaker": "gokul_ta_narration"},
+    "te-IN": {"name": "Telugu", "speaker": "kavitha_te_narration"},
+}
 
 
 def load_env_file():
@@ -57,6 +68,11 @@ def load_env_file():
 load_env_file()
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+
+@app.context_processor
+def add_tts_languages():
+    return {"tts_languages": TTS_LANGUAGES}
 
 DIETARY_OPTIONS = {
     "vegetarian": "vegetarian",
@@ -309,7 +325,7 @@ def recommend():
     ingredients = request.form.get("ingredients", "").strip()
     if not image or not image.filename:
         image = None
-    if mode == "photo" and image is None:
+    if mode == "photo" and image is None and not request.form.get("photo_context", "").strip():
         return render_template(
             "index.html", dietary_options=DIETARY_OPTIONS, mode=mode,
             error="Choose a food photo first.",
@@ -349,19 +365,22 @@ def recommend():
             ]
             source_text = "Help me decide what to eat. I have no ingredients selected. " + "".join(preferences)
         elif mode == "photo":
-            image_bytes = image.read(MAX_UPLOAD_BYTES + 1)
-            if len(image_bytes) > MAX_UPLOAD_BYTES:
-                return render_template(
-                    "index.html", dietary_options=DIETARY_OPTIONS,
-                    error="Choose an image smaller than 8 MB.",
-                ), 413
-            mime_type = (image.mimetype or "").lower()
-            if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
-                return render_template(
-                    "index.html", dietary_options=DIETARY_OPTIONS,
-                    error="Upload a JPG, PNG, or WebP food photo.",
-                ), 400
-            image_summary = identify_food(client, image_bytes, mime_type)
+            if image is None:
+                image_summary = request.form.get("photo_context", "").strip()[:1200]
+            else:
+                image_bytes = image.read(MAX_UPLOAD_BYTES + 1)
+                if len(image_bytes) > MAX_UPLOAD_BYTES:
+                    return render_template(
+                        "index.html", dietary_options=DIETARY_OPTIONS,
+                        error="Choose an image smaller than 8 MB.",
+                    ), 413
+                mime_type = (image.mimetype or "").lower()
+                if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+                    return render_template(
+                        "index.html", dietary_options=DIETARY_OPTIONS,
+                        error="Upload a JPG, PNG, or WebP food photo.",
+                    ), 400
+                image_summary = identify_food(client, image_bytes, mime_type)
             source_text = "Use this food photo analysis as the starting point for recipe ideas: " + image_summary
         elif mode == "ingredients":
             source_text = "Ingredients currently available: " + ingredients[:2000]
@@ -370,6 +389,14 @@ def recommend():
                 "index.html", dietary_options=DIETARY_OPTIONS, mode=mode,
                 error="Choose photo, ingredients, or Help me decide.",
             ), 400
+
+        if request.form.get("refresh") == "1":
+            previous_names = request.form.get("previous_recipe_names", "").strip()[:500]
+            if previous_names:
+                source_text += (
+                    " Generate fresh alternatives and avoid repeating these previous recipe names: "
+                    + previous_names + "."
+                )
 
         result = build_recipe_request(
             client, source_text, restrictions, custom_restrictions, max_calories,
@@ -457,13 +484,29 @@ def speak():
     text = request.form.get("text", "").strip()
     if not text:
         return jsonify(error="There is no recipe text to read."), 400
-    text = text[:2400]
+    language_code = request.form.get("language_code", "en-IN")
+    voice = TTS_LANGUAGES.get(language_code)
+    if not voice:
+        return jsonify(error="Choose a supported read-aloud language."), 400
+    text = text[:2000]
     try:
-        speech = sarvam_client().text_to_speech.convert(
+        client = sarvam_client()
+        if language_code != "en-IN":
+            translation = client.text.translate(
+                input=text,
+                source_language_code="en-IN",
+                target_language_code=language_code,
+                model="mayura:v1",
+                mode="modern-colloquial",
+            )
+            text = (translation.translated_text or "").strip()[:2400]
+            if not text:
+                return jsonify(error="Sarvam could not translate this recipe."), 502
+        speech = client.text_to_speech.convert(
             text=text,
             model="bulbul:v4-flash",
-            language_code="en-IN",
-            speaker="aditi_en_stories",
+            language_code=language_code,
+            speaker=voice["speaker"],
             output_audio_codec="mp3",
         )
         audio_bytes = base64.b64decode("".join(speech.audios or []))
