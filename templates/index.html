@@ -221,16 +221,21 @@
       try {
         microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioParts = [];
-        recorder = new MediaRecorder(microphone);
+        const supportedAudioTypes = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"];
+        const preferredAudioType = supportedAudioTypes.find(type => MediaRecorder.isTypeSupported(type));
+        recorder = new MediaRecorder(microphone, preferredAudioType ? { mimeType: preferredAudioType } : undefined);
         recorder.ondataavailable = event => { if (event.data.size) audioParts.push(event.data); };
         recorder.onstart = () => { recordButton.textContent = "■ Stop dictation"; voiceStatus.textContent = "Listening…"; };
         recorder.onstop = async () => {
           microphone.getTracks().forEach(track => track.stop());
           recordButton.textContent = "🎙 Dictate";
           voiceStatus.textContent = "Transcribing…";
-          const clip = new Blob(audioParts, { type: recorder.mimeType || "audio/webm" });
+          const mimeType = recorder.mimeType || audioParts[0]?.type || "audio/webm";
+          const clip = new Blob(audioParts, { type: mimeType });
+          const mimeBase = mimeType.split(";", 1)[0].toLowerCase();
+          const extensionByMime = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/x-m4a": "m4a", "audio/ogg": "ogg" };
           const form = new FormData();
-          form.append("audio", clip, "dictation.webm");
+          form.append("audio", clip, `dictation.${extensionByMime[mimeBase] || "webm"}`);
           form.append("language_code", document.getElementById("dictation-language").value);
           try {
             const response = await fetch("{{ url_for('transcribe') }}", { method: "POST", body: form });
