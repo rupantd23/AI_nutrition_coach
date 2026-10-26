@@ -39,6 +39,10 @@ legend { padding: 0 6px; }
 .results { margin-top: 34px; }
 .results-heading h2 { margin: 4px 0 14px; font-size: 2rem; }
 .recipe { padding: 24px; }
+.refresh-recipes { margin: 0 0 8px; }
+.speech-controls { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+.speech-language { display: grid; gap: 5px; min-width: 140px; color: var(--muted); font-size: .82rem; font-weight: 600; }
+.speech-language-select { padding: 9px 11px; }
 .recipe-heading { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; }
 .recipe h3 { margin: 0 0 5px; font-size: 1.55rem; }
 .recipe-heading p { margin: 0; color: var(--muted); }
