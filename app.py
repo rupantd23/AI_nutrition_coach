@@ -395,6 +395,7 @@ def recommend():
     except RuntimeError as error:
         message = str(error)
     except Exception as error:
+        app.logger.exception("Recipe recommendation request failed")
         message = api_error_message(error)
     return render_template(
         "index.html", dietary_options=DIETARY_OPTIONS,
@@ -430,6 +431,7 @@ def transcribe():
     except RuntimeError as error:
         return jsonify(error=str(error)), 400
     except Exception as error:
+        app.logger.exception("Speech transcription request failed")
         return jsonify(error=api_error_message(error)), 502
 
 
@@ -454,6 +456,7 @@ def speak():
     except RuntimeError as error:
         return jsonify(error=str(error)), 400
     except Exception as error:
+        app.logger.exception("Text-to-speech request failed")
         return jsonify(error=api_error_message(error)), 502
 
 
