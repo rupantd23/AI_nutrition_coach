@@ -2,6 +2,8 @@ import base64
 import io
 import json
 import os
+import re
+import textwrap
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -313,6 +315,30 @@ def api_error_message(error):
     return message[:500]
 
 
+def split_translation_text(text, max_chars=950):
+    """Split narration at sentence boundaries so Mayura requests stay below 1000 chars."""
+    chunks = []
+    current = ""
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(textwrap.wrap(sentence, width=max_chars, break_long_words=True))
+        elif not current or len(current) + len(sentence) + 1 <= max_chars:
+            current = f"{current} {sentence}".strip()
+        else:
+            chunks.append(current)
+            current = sentence
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 @app.get("/")
 def home():
     return render_template("index.html", dietary_options=DIETARY_OPTIONS)
@@ -492,14 +518,17 @@ def speak():
     try:
         client = sarvam_client()
         if language_code != "en-IN":
-            translation = client.text.translate(
-                input=text,
-                source_language_code="en-IN",
-                target_language_code=language_code,
-                model="mayura:v1",
-                mode="modern-colloquial",
-            )
-            text = (translation.translated_text or "").strip()[:2400]
+            translated_chunks = []
+            for chunk in split_translation_text(text):
+                translation = client.text.translate(
+                    input=chunk,
+                    source_language_code="en-IN",
+                    target_language_code=language_code,
+                    model="mayura:v1",
+                    mode="modern-colloquial",
+                )
+                translated_chunks.append((translation.translated_text or "").strip())
+            text = " ".join(part for part in translated_chunks if part)[:2400]
             if not text:
                 return jsonify(error="Sarvam could not translate this recipe."), 502
         speech = client.text_to_speech.convert(
